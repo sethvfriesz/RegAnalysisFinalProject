@@ -1,0 +1,591 @@
+---
+title: "Project Work"
+author: "Jordan Huitink, Seth Friesz, Bryce Dangler"
+date: "4/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE}
+#Summary Statistic Function
+SMS <- function(x, dig, Header){
+  cat(Header, 
+      "\n-------------------------------------", 
+      "\nMean:", round(mean(x), digits = dig),
+      "\nMedian:", round(median(x), digits = dig),
+      "\nVariance:", round(var(x), digits = dig), 
+      "\n-------------------------------------\n\n")
+}
+
+#Define Numeric Columns to Analyze vs Residuals
+nums <- c("carat", "caratLog", "depth", "table", "x", "y", "z")
+
+#Residuals vs Prediction Variable Plots
+Resid.vs.Pred <- function(header, resid, pred, nr, nc){
+  #Reset Par After Exiting
+  old.par <- par(no.readonly = TRUE)
+  on.exit(par(old.par))
+
+  #Get Numeric Columns
+  pred <- as.data.frame(pred)
+  numss <- is.element(colnames(pred), nums)
+  numss <- colnames(pred)[numss]
+  pred <- subset(pred, select = numss)
+  
+  #Get number of numerics
+  k <- ncol(pred)
+  
+  #Determine if One Plot
+  if (nr == 1 && nc == 1){
+    par(mfrow = c(nr, nc), mai = c(1,1,0.1,1), oma = c(0,0,2,0))
+  } else{
+     par(mfrow = c(nr, nc), mai = c(1,0.3,0.1,0.2), oma = c(0,0,2,0))
+  }
+  
+  #Plot residuals vs Numerics
+  for (i in 1:k){
+    plot(pred[,i], resid, pch = 16, xlab = colnames(pred)[i], main = "")
+  }
+  mtext(paste(header,"Residuals vs Predictor Variables"), side=3, line=0, outer=TRUE)
+}
+```
+
+
+## Get Data
+```{r}
+library(ggplot2)
+Diam <- read.csv("BJS_Data_Updated_v2.csv", header = T)
+n <- nrow(Diam)
+Diam$logPrice <- log(Diam$price)
+Diam$caratLog <- log(Diam$carat)
+
+#Create Design Matrix
+X. <- subset(Diam, select = -c(price, logPrice, caratLog))
+
+#Cut Categories
+X.$CutIdeal <- ifelse(X.$cut == "Ideal", 1, 0)
+X.$CutGood <- ifelse(X.$cut == "Good", 1, 0)
+X.$CutPremium <- ifelse(X.$cut == "Premium", 1, 0)
+X.$CutVeryGood <- ifelse(X.$cut == "Very Good", 1, 0)
+
+#Color Categories
+X.$ColorD <- ifelse(X.$color == "D", 1, 0)
+X.$ColorE <- ifelse(X.$color == "E", 1, 0)
+X.$ColorF <- ifelse(X.$color == "F", 1, 0)
+X.$ColorG <- ifelse(X.$color == "G", 1, 0)
+X.$ColorH <- ifelse(X.$color == "H", 1, 0)
+X.$ColorI <- ifelse(X.$color == "I", 1, 0)
+
+#Clarity Categories
+X.$ClarityI1 <- ifelse(X.$clarity == "I1", 1, 0)
+X.$ClarityIF <- ifelse(X.$clarity == "IF", 1, 0)
+X.$ClaritySI2 <- ifelse(X.$clarity == "SI2", 1, 0)
+X.$ClarityVS1 <- ifelse(X.$clarity == "VS1", 1, 0)
+X.$ClarityVS2 <- ifelse(X.$clarity == "VS2", 1, 0)
+X.$ClarityVVS1 <- ifelse(X.$clarity == "VVS1", 1, 0)
+X.$ClarityVVS2 <- ifelse(X.$clarity == "VVS2", 1, 0)
+
+X. <- subset(X., select = -c(cut, color, clarity))
+
+X. <- as.matrix(X.)
+```
+
+## Analyze Dependent Variable
+```{r}
+par(mfrow = c(1,2))
+hist(Diam$price, nclass = 50, freq = F, main = "Histogram of Price", xlab = "X")
+hist(Diam$logPrice, nclass = 50, freq = F, main = "Histogram of Price Logged", xlab = "X")
+
+SMS(Diam$price, 3, "Price")
+
+SMS(Diam$logPrice, 3, "Log Price")
+```
+
+## Relationships between Variables
+```{r}
+pairs(~ logPrice + price + x + y + z + caratLog + carat + depth + table, data = Diam)
+```
+
+## Full Model
+```{r}
+#Untransformed Model
+untransformed.mod <- lm(Diam$price ~ X.)
+summary(untransformed.mod)
+
+#Residual Analysis
+Resid.vs.Pred("Full Untransformed Model", untransformed.mod$residuals, untransformed.mod$model$X., 2, 3)
+
+par(mfrow = c(2,2))
+plot(untransformed.mod)
+```
+
+## Box Cox Transformation
+```{r}
+library(MASS)
+boxcox(untransformed.mod, lambda = seq(-1, 1, 1/10), xlab = expression(lambda),
+       ylab = "log-Likelihood")
+#Suggests Log Transformation
+```
+
+## New Full Model
+```{r}
+#Full Model
+mod <- lm(Diam$logPrice ~ X.)
+summary(mod)
+
+#Residual Analysis
+Resid.vs.Pred("Full Model", mod$residuals, mod$model$X., 2, 3)
+par(mfrow = c(2,2))
+plot(mod)
+
+#ANOVA
+summary(aov(mod))
+```
+
+## Variable Selection - Stepwise Model
+```{r}
+library(stats)
+
+#Training Full Model
+Train <- as.data.frame(X.)
+Train$logPrice <- Diam$logPrice
+
+#Intercept only model
+io <- lm(logPrice ~ 1, data = Train)
+model <- lm(paste0("logPrice ~ ", paste(colnames(X.), collapse = " + ")), data = Train)
+
+#Stepwise Model
+step.mod <- step(io, direction = 'forward', scope = formula(model),  trace = F)
+summary(step.mod)
+
+#AIC graph
+AIC <- c(3.66,-5199.3, -6109.41, -7123.6, -7430.37, -8103.39, -8175.74, -8201.29, -8237.96, -8236.4)
+par(mfrow = c(1,2))
+plot(AIC, pch = 16)
+plot(AIC, xlim = c(8,10), ylim = c(-8240,-8200), pch = 16)
+
+#Residual Analysis
+Resid.vs.Pred("Stepwise Model", step.mod$residuals, step.mod$model, 2, 3)
+par(mfrow = c(2,2))
+plot(step.mod)
+
+#ANOVA
+summary(aov(step.mod))
+```
+
+## SLR
+```{r}
+old.par <- par(no.readonly = TRUE)
+
+#Initial SLR Model with Best Predictor
+SLR.model.init <- lm(logPrice ~ carat, data = Diam)
+summary(SLR.model.init)
+
+#Residual Analysis
+Resid.vs.Pred("SLR Initial Model", SLR.model.init$residuals, SLR.model.init$model, 1, 1)
+par(mfrow = c(2,2))
+plot(SLR.model.init)
+
+par(old.par)
+
+#Determine Variable Transformation
+X <- Diam$carat
+Y <- log(Diam$price)
+boxcox(lm(X ~ Y), lambda = seq(-1, 1, 1/10), xlab = expression(lambda), ylab = "log-Likelihood")
+
+#Use Log Transform of Independent Variable
+SLR.model <- lm(logPrice ~ caratLog, data = Diam)
+summary(SLR.model)
+
+#Residual Analysis
+Resid.vs.Pred("SLR Model", SLR.model$residuals, SLR.model$model, 1, 1)
+par(mfrow = c(2,2))
+plot(SLR.model)
+
+#ANOVA
+summary(aov(SLR.model))
+```
+
+## Small Model - Eliminate Multicolinearity
+```{r}
+#Small model
+XX. <- as.data.frame(X.)
+XX. <- subset(XX., select = -c(x,y,z))
+XX. <- as.matrix(XX.)
+small.mod <- lm(Diam$logPrice ~ XX.)
+summary(small.mod)
+res <- small.mod$residuals
+
+#Residual Analysis
+Resid.vs.Pred("Small Model", small.mod$residuals, small.mod$model$XX., 2, 2)
+
+par(mfrow = c(2,2))
+plot(small.mod)
+
+#Small model with Log Carat
+XX. <- cbind(X., Diam$logPrice)
+XX. <- as.data.frame(X.)
+XX.$caratLog <- Diam$caratLog
+XX. <- subset(XX., select = -c(x, y, z, carat))
+XX. <- as.matrix(XX.)
+small.mod <- lm(Diam$logPrice ~ XX.)
+summary(small.mod)
+
+#Residual Analysis
+Resid.vs.Pred("Small Model", small.mod$residuals, small.mod$model$XX., 2, 2)
+
+par(mfrow = c(2,2))
+plot(small.mod)
+
+#Small model with Significant Predictors
+XX. <- cbind(X., Diam$logPrice)
+XX. <- as.data.frame(X.)
+XX.$caratLog <- Diam$caratLog
+XX. <- subset(XX., select = -c(depth, table, x, y, z, carat))
+XX. <- as.matrix(XX.)
+small.mod <- lm(Diam$logPrice ~ XX.)
+summary(small.mod)
+
+#Residual Analysis
+Resid.vs.Pred("Small Model", small.mod$residuals, small.mod$model$XX., 1, 1)
+
+par(mfrow = c(2,2))
+plot(small.mod)
+
+#ANOVA
+summary(aov(small.mod))
+
+#Paper Graph
+par(mfrow = c(2,2))
+plot(Diam$carat, res, xlab = "Carat", ylab = "Residuals", main = "Model Less x, y, z")
+plot(Diam$caratLog, small.mod$residuals, xlab = "Log of Carat", ylab = "Residuals", main = "Model Less x, y, z, depth, table")
+plot(small.mod$fitted.values, small.mod$residuals, xlab = "Fitted Values", ylab = "Residuals", main = "Model Less x, y, z, depth, table")
+qqnorm(small.mod$residuals, main = "Normal Q-Q Model less x, y, z, depth, table")
+```
+
+## Standardized Regression
+```{r}
+stdize <- function(X){
+  return(1/sqrt(length(X) - 1)*(X - mean(X))/sd(X))
+}
+
+stdDiam. <- X.
+
+for (i in 1:(ncol(stdDiam.))){
+  Y <- stdDiam.[,i]
+  #if (is.element(colnames(stdDiam.)[i], nums)){
+    stdDiam.[,i] <- stdize(Y)
+  #}
+}
+
+Y <- stdize(Diam$logPrice)
+
+#Standardized Model
+std.mod <- lm(Y ~ stdDiam.)
+summary(std.mod)
+```
+
+## Ridge Regression
+```{r}
+library(glmnet)
+
+model <- glmnet(X., Diam$logPrice, alpha = 0)
+
+plot(model, xvar = "lambda")
+
+cv.model <- cv.glmnet(X., Diam$logPrice, alpha = 0)
+
+best_lambda <- cv.model$lambda.min
+
+plot(model)
+
+#Ridge Model
+best_model <- glmnet(X., Diam$logPrice, alpha = 0, lambda = best_lambda)
+coef(best_model)
+best_lambda
+```
+
+```{r}
+#DIY Ridge
+rXX. <- X.
+
+for (i in 1:(ncol(rXX.))){
+  rXX.[,i] <- ((X.[,i] - mean(X.[,i]))/(sd(X.[,i])))*1/sqrt(nrow(rXX.) - 1)
+}
+
+Ystd <- (Diam$logPrice - mean(Diam$logPrice))/sd(Diam$logPrice)*1/sqrt(nrow(X.) - 1)
+
+rXY. <- t(stdDiam.)%*%Ystd
+
+rXX. <- t(rXX.)%*%rXX.
+
+b <- solve(rXX. + 0.5*diag(nrow(rXX.)))%*%rXY.
+
+Test <- sum((stdDiam.%*%b - Ystd)^2)
+
+sq <- seq(0, 0.5, by = 0.005)
+VIF <- matrix(nrow = length(sq), ncol = ncol(X.))
+RCo <- matrix(nrow = length(sq), ncol = ncol(X.))
+SSERid <- vector(length = length(sq))
+PLS <- vector(length = length(sq))
+
+for (i in 1:length(sq)){
+  VIF[i,] <- diag(solve(rXX. + sq[i]*diag(nrow(rXX.))) %*% rXX. %*% solve(rXX. + sq[i]*diag(nrow(rXX.))))
+  RCo[i,] <- solve(rXX. + sq[i]*diag(nrow(rXX.)))%*%rXY.
+  
+  b <- solve(rXX. + sq[i]*diag(nrow(rXX.)))%*%rXY.
+  SSERid[i] <- sum((stdDiam.%*%b - Ystd)^2)
+  PLS[i] <- SSERid[i] + sq[i]*sum(b^2)
+}
+
+colnames(VIF) <- colnames(X.)
+colnames(RCo) <- colnames(X.)
+
+clr <- c("blue", "green", "purple", "orange", "pink", "grey")
+
+#VIF Plot
+plot(x = sq,y = VIF[,1], type = "l", lty = 1, col = clr[1], ylab = "VIF", xlab = expression(lambda), main = "VIF for Various Bias Constants", lwd = 2)
+for (i in 2:6){
+  lines(x = sq,y = VIF[,i], lty = i, col = clr[i], lwd = 2)
+}
+abline(h = 10, col = "red")
+legend("topright", legend = colnames(RCo)[1:6], lty=1:6, col = clr)
+
+
+#Coefficient Plot
+plot(x = sq,y = RCo[,1], type = "l", lty = 1, col = clr[1], ylab = "Coefficient Value", xlab = expression(lambda), main = "Coefficients for Various Bias Constants", ylim = c(-0.5, 1), lwd = 2)
+for (i in 2:6){
+  lines(x = sq,y = RCo[,i], lty = i, col = clr[i], lwd = 2)
+}
+legend("topright", legend = colnames(RCo)[1:6], lty=1:6, col = clr)
+
+plot(sq, 1-SSERid, type = "l", lty = 1, col = "blue", ylab = "R Squared", xlab = expression(lambda), main = "R Squared for Various Bias Constants", lwd = 2)
+
+best.lam <- 0.2
+
+rid.coef <-solve(rXX. + best.lam*diag(nrow(rXX.)))%*%rXY.
+
+plot(sq, PLS)
+
+rid.coef.sd <- vector(length = ncol(X.))
+for (i in 1:(ncol(X.))){
+  rid.coef.sd[i] <- sd(X.[,i]) 
+}
+
+rid.coef.t <- (sd(Diam$logPrice)/rid.coef.sd)*rid.coef
+
+Int <- mean(Diam$logPrice)
+for (i in 1:(length(rid.coef.t))){
+  Int <- Int - rid.coef.t[i]*mean(X.[,i])
+}
+
+rid.coef.t <- c(Int,rid.coef.t)
+
+Y.hat.rid <- as.matrix(cbind(1,X.))%*%rid.coef.t
+
+#1 - sum((Y.hat.rid - Diam$logPrice)^2)/SSTO
+
+res <- Y.hat.rid - Diam$logPrice
+
+#Residual Analysis
+#Resid.vs.Pred("Ridge Model", res, X., 2, 3)
+
+#par(mfrow = c(1,2))
+#plot(Y.hat.rid, res)
+#qqnorm(res)
+```
+
+
+## Coefficient Comparison
+```{r}
+#Start with Full Model
+Full.Model <- mod$coefficients
+Coefs <- as.data.frame(Full.Model)
+
+#Standardized/Ridge Models
+Coefs$Ridge.Model <- rid.coef.t
+
+#Change Row Names
+rnms <- names(mod$coefficients)
+rnms <- gsub("X.", "", rnms)
+rownames(Coefs) <- rnms
+
+#Stepwise Model
+nms <- names(step.mod$coefficients)
+n <- length(Coefs$Full.Model)
+nn <- length(nms)
+temp <- rep(0, n)
+
+for (i in 1:nn){
+  j <- 1
+  while(nms[i] != rownames(Coefs)[j]){
+    j <- j + 1
+  }
+  temp[j] <- step.mod$coefficients[i]
+}
+
+Coefs$Stepwise.Model <- temp
+
+#SLR Model
+Coefs$SLR.Model <- rep(0, n)
+Coefs$SLR.Model[1] <- SLR.model$coefficients[1]
+temp <- rep(0, ncol(Coefs))
+temp[ncol(Coefs)] <- SLR.model$coefficients[2]
+Coefs <- rbind(Coefs, temp)
+rnms <- c(rnms, "caratLog")
+rownames(Coefs) <- rnms
+
+#Small Model
+nms <- names(small.mod$coefficients)
+nms <- gsub("XX.", "", nms)
+n <- nrow(Coefs)
+nn <- length(nms)
+temp <- rep(0, n)
+
+for (i in 1:nn){
+  j <- 1
+  while(nms[i] != rownames(Coefs)[j]){
+    j <- j + 1
+  }
+  temp[j] <- small.mod$coefficients[i]
+}
+
+Coefs$Small.Model <- temp
+
+#Get SSE For Each Model
+SSE <- vector(length = ncol(Coefs))
+
+XX. <- as.matrix(cbind(1, X., Diam$caratLog))
+
+for (i in 1:(ncol(Coefs))){
+  SSE[i] <- sum((XX.%*%Coefs[,i] - Diam$logPrice)^2)
+}
+
+#Alternative Ridge SSE (Use non transformed ridge regression coefficients.)
+#SSE[2] <- sum((as.matrix(cbind(1,stdDiam.,Diam$logPrice))%*%Coefs[,2] - Ystd)^2)
+
+Coefs <- rbind(Coefs, SSE)
+
+#Get R^2 For Each Model
+SSTO <- sum((Diam$logPrice - mean(Diam$logPrice))^2)
+
+R2 <- 1 - SSE/SSTO
+
+#Alternative Ridge R^2 (Use Alternative SSE)
+#R2[2] <- 1 - SSE[2]
+
+Coefs <- rbind(Coefs, R2)
+
+rnms <- c(rnms, "SSE", "R^2")
+rownames(Coefs) <- rnms
+
+#Adjusted R^2
+p <- rep(0, ncol(Coefs))
+
+for (i in 1:(length(p))){
+  p[i] <- 25 - length(which(Coefs[1:25,i] == 0))
+}
+
+n <- nrow(X.)
+temp <- 1 - (n-1)*(1-Coefs[27,])/(n - p)
+temp <- as.numeric(temp)
+
+Coefs <- rbind(Coefs, as.vector(temp))
+
+#MSE
+temp <- SSE/(n - p)
+
+Coefs <- rbind(Coefs, as.vector(temp))
+
+rnms <- c(rnms, "AdjustedR^2", "MSE")
+rownames(Coefs) <- rnms
+
+library(knitr)
+kable(Coefs)
+```
+
+# Model Comparison
+```{r}
+library(dplyr)
+#Anti Join gives everything from X that is not in Y (i.e. everything in diamonds not in Diam)
+test <- anti_join(diamonds, Diam)
+sampsize <- 500
+
+set.seed(123)
+samp <- sample(1:nrow(test), sampsize, replace = FALSE)
+test <- test[samp,]
+
+test$logPrice <- log(test$price)
+test$caratLog <- log(test$carat)
+
+#Create Design Matrix
+X. <- subset(test, select = -c(price, logPrice, caratLog))
+
+#Cut Categories
+X.$CutIdeal <- ifelse(X.$cut == "Ideal", 1, 0)
+X.$CutGood <- ifelse(X.$cut == "Good", 1, 0)
+X.$CutPremium <- ifelse(X.$cut == "Premium", 1, 0)
+X.$CutVeryGood <- ifelse(X.$cut == "Very Good", 1, 0)
+
+#Color Categories
+X.$ColorD <- ifelse(X.$color == "D", 1, 0)
+X.$ColorE <- ifelse(X.$color == "E", 1, 0)
+X.$ColorF <- ifelse(X.$color == "F", 1, 0)
+X.$ColorG <- ifelse(X.$color == "G", 1, 0)
+X.$ColorH <- ifelse(X.$color == "H", 1, 0)
+X.$ColorI <- ifelse(X.$color == "I", 1, 0)
+
+#Clarity Categories
+X.$ClarityI1 <- ifelse(X.$clarity == "I1", 1, 0)
+X.$ClarityIF <- ifelse(X.$clarity == "IF", 1, 0)
+X.$ClaritySI2 <- ifelse(X.$clarity == "SI2", 1, 0)
+X.$ClarityVS1 <- ifelse(X.$clarity == "VS1", 1, 0)
+X.$ClarityVS2 <- ifelse(X.$clarity == "VS2", 1, 0)
+X.$ClarityVVS1 <- ifelse(X.$clarity == "VVS1", 1, 0)
+X.$ClarityVVS2 <- ifelse(X.$clarity == "VVS2", 1, 0)
+
+#Add back carat log
+X.$caratLog <- test$caratLog
+
+X. <- subset(X., select = -c(cut, color, clarity))
+
+X. <- as.matrix(cbind(1,X.))
+
+#Calculate Predicted Values
+TestingY <- matrix(ncol = 5, nrow = sampsize)
+
+for (i in 1:5){
+  TestingY[,i] <- X.%*%Coefs[1:25,i]
+}
+
+#Get Residuals
+e2_test <- vector(length = 5)
+for (i in 1:5){
+  e2_test[i] <- sum((test$logPrice - TestingY[,i])^2)
+}
+
+#Get MSE
+MSE_test <- e2_test/(sampsize - p)
+
+#Get R^2
+SSTO_test <- sum((test$logPrice - mean(test$logPrice))^2)
+
+R2_test <- 1 - e2_test/SSTO_test
+
+#Get Adjusted R^2
+AdjR2_test <- 1 - (sampsize-1)*(1-R2_test)/(sampsize - p)
+
+rbind(e2_test, MSE_test, R2_test, AdjR2_test)
+
+#F test (Reduced vs SLR Model)
+alpha <- 0.05
+Fmod <- 5
+Rmod <- 4
+F.Stat <- ((Coefs[26,Rmod] - Coefs[26,Fmod])/(p[Fmod] - p[Rmod]))/(Coefs[29,Fmod])
+F. <- qf(1-alpha, p[Fmod] - p[Rmod], 2000 - p[Fmod])
+
+```
+
